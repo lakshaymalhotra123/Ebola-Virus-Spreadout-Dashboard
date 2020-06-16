@@ -1,0 +1,324 @@
+---
+title: "Shiny2"
+author: "Lakshay Malhotra"
+date: "28 March 2020"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+__Load required packages:__
+```{r loadpackages, message=FALSE}
+if(!require("pacman")) install.packages("pacman")
+pacman::p_load(e1071, caret, tidyverse, data.table, gains,xlsx,shiny,zoo,xts,lubridate,dplyr,ggplot2,shinydashboard,
+               reshape2,plotly,readr,imputeTS,leaflet,RColorBrewer,plotly,highcharter,Rfast,shinycssloaders,DT,
+               ggthemes)
+
+```
+## ################################## Loading the File and Data Cleaning ############################################
+setwd("A:\\Semester 5\\Advance BA with R\\Datasets")
+
+```{r data, include=FALSE}
+ebola_df <- read_csv('A:\\Semester 5\\Advance BA with R\\Datasets/ebola_2014_2016.csv')
+ebola_df$Date =mdy(ebola_df$Date)
+df_ebola = ebola_df
+
+val = 0
+Count1 = "Guinea"
+for (i in range(1,nrow(df_ebola))){
+  print(i)
+  if (df_ebola$Country ==  Count1) {
+    print(i)
+    val = c(val,coalesce(df_ebola$`No. of confirmed cases`[i],0)) 
+    print(val)
+    if (is.na(df_ebola$`No. of confirmed cases`[i]) == TRUE){
+      df_ebola$`No. of confirmed cases`[i] = max(val)
+  }
+  
+  else{
+    df_ebola$`No. of confirmed cases`[i] = df_ebola$`No. of confirmed cases`[i] 
+  }
+    
+  }
+  
+  else{
+    Country = df_ebola$Country
+    val= 0
+    if (is.na(df_ebola$`No. of confirmed cases`[i]) == TRUE){
+      df_ebola$`No. of confirmed cases`[i] = max(val)
+    }
+    
+    else{
+      df_ebola$`No. of confirmed cases`[i] = df_ebola$`No. of confirmed cases`[i] 
+    }
+  }
+}
+df_ebola$`No. of confirmed cases`[is.na(df_ebola$`No. of confirmed cases`)] <- 950
+
+
+val = 0
+Count1 = "Guinea"
+for (i in range(1,nrow(df_ebola))){
+  print(i)
+  if (df_ebola$Country ==  Count1) {
+    print(i)
+    val = c(val,coalesce(df_ebola$`No. of confirmed deaths`[i],0)) 
+    print(val)
+    if (is.na(df_ebola$`No. of confirmed deaths`[i]) == TRUE){
+      df_ebola$`No. of confirmed deaths`[i] = max(val)
+    }
+    
+    else{
+      df_ebola$`No. of confirmed deaths`[i] = df_ebola$`No. of confirmed deaths`[i] 
+    }
+    
+  }
+  
+  else{
+    Country = df_ebola$Country
+    val= 0
+    if (is.na(df_ebola$`No. of confirmed deaths`[i]) == TRUE){
+      df_ebola$`No. of confirmed deaths`[i] = max(val)
+    }
+    
+    else{
+      df_ebola$`No. of confirmed deaths`[i] = df_ebola$`No. of confirmed deaths`[i] 
+    }
+  }
+}
+df_ebola[is.na(df_ebola)] <- 0
+df_ebola = df_ebola[order(df_ebola$Date),]
+df_ebola <- df_ebola[,-c(6,10)]
+df_ebola$Totalcases <- df_ebola$`No. of suspected cases` +df_ebola$`No. of probable cases` + df_ebola$`No. of confirmed cases`
+df_ebola$Totaldeaths <- df_ebola$`No. of suspected deaths` +df_ebola$`No. of probable deaths` + df_ebola$`No. of confirmed deaths`
+df_ebola <- df_ebola %>% group_by(Country,Date) %>% summarize(Total_Cases=sum(`No. of confirmed cases`),
+Total_Deaths=sum(`No. of confirmed deaths`))
+
+ebola_df[is.na(ebola_df)] <- 0
+ebola_df = ebola_df[order(ebola_df$Date),]
+ebola_df <- ebola_df[,-c(6,10)]
+ebola_df$Totalcases <- ebola_df$`No. of suspected cases` +ebola_df$`No. of probable cases` + ebola_df$`No. of confirmed cases`
+ebola_df$Totaldeaths <- ebola_df$`No. of suspected deaths` +ebola_df$`No. of probable deaths` + ebola_df$`No. of confirmed deaths`
+
+
+df = data.frame(Country =unique(sort(ebola_df$Country)),
+CODE = c('GIN', 'ITA', 'LBR', 'MLI', 'NGA', 'SEN', 'SLE', 'ESP', 'GBR', 'USA'),
+Lat = c(9.50913, 41.871941, 6.428055, 17.570692, 9.081999, 15.221447, 8.560284, 41.294856, 54.237933, 39.381266),
+Long = c(-13.71255  ,12.56738  ,-9.429499  ,-3.996166  ,8.675277  ,-14.82088  ,-11.791922  ,-4.055685  ,-2.36967  ,-97.922211),
+Totalcases=ebola_df  %>% group_by(Country)  %>% arrange(desc(Country)) %>%
+summarize(Totalcases = max(Totalcases,na.rm=FALSE)) %>% select(Totalcases),
+Totaldeaths =ebola_df  %>% group_by(Country)  %>% arrange(desc(Country)) %>%
+summarize(Totaldeaths = max(Totaldeaths,na.rm=TRUE)) %>% select(Totaldeaths))
+
+df <- mutate(df,FR = Totaldeaths / Totalcases)
+ebola_df1 <- merge(ebola_df,df %>% select('Country','Lat','Long','FR'),by="Country")
+```
+
+## ########################################## Creating Dashboard###### ############################################
+```{r UI, include=FALSE}
+ ui <- dashboardPage(
+  dashboardHeader(title = "Ebola Virus EDA Dashboard "),
+  dashboardSidebar(
+  tags$style(type="text/css",".shiny-output-error { visibility: hidden; }",
+                  ".shiny-output-error:before { visibility: hidden; }"),
+
+  width = 300,
+  sidebarMenu(
+  
+  menuItem("No. of Ebola cases over Time", tabName = "confirmed_cases_over_Time",icon = icon("dashboard")),
+  menuItem("Cases by Countries", tabName = "Cases_by_Countries",icon = icon("dashboard")),
+  menuItem("Ebola Virus Spreadout by date on a map", tabName = "GISMap",icon = icon("dashboard"))
+  )
+),
+
+  dashboardBody(
+    tabItems(
+
+tabItem(tabName = "confirmed_cases_over_Time",
+    fluidPage(
+        
+   sidebarLayout(
+  
+     sidebarPanel(
+
+       selectInput(inputId = "selected_Country1",
+                   label = "Country:",
+                   choices = c("", unique(df_ebola$Country)))
+    
+     ),
+
+     mainPanel(
+        plotlyOutput(outputId="scatterplot1"),
+        br(),br(),
+        plotlyOutput(outputId="scatterplot2"),
+        br(),br(),
+        tableOutput("table1")
+       )
+   )
+ )
+ ),
+ 
+ tabItem(tabName = "Cases_by_Countries",
+    fluidPage(
+        
+   sidebarLayout(
+  
+     sidebarPanel(
+
+       selectInput(inputId = "selected_Country2",
+                   label = "Country:",
+                   choices = c("", unique(ebola_df$Country)))
+      
+     ),
+
+     mainPanel(
+        plotlyOutput(outputId="bar1", width="500px",height="500px"), 
+        br(),br(),
+        plotlyOutput(outputId="bar2", width="500px",height="500px"),
+        br(),br(),
+        tableOutput("table2")
+        
+       )
+   )
+ )
+ ),
+
+ tabItem(tabName = "GISMap",
+    fluidPage(
+        
+   sidebarLayout(
+  
+     sidebarPanel(
+
+       dateRangeInput(inputId = "daterange", label = "Select date range to filter Ebola Virus by date",
+                                                  start = as.Date('2014-08-29'), end = as.Date('2016-03-23'))
+      
+     ),
+
+        mainPanel(
+          
+          leafletOutput(outputId = "map1",height = 600,width = "auto") %>% withSpinner(color="#0dc5c1"),
+          dataTableOutput(outputId ="table3"),
+          br(),br(),
+        width = 9)
+       
+        
+       )
+   )
+ )
+ 
+ 
+ 
+)
+)
+)
+```
+## ########################################## Server ###### ############################################
+
+```{r server, include=FALSE}
+
+server <- function(input, output) {
+  
+  #Reactive data filtering according to the date
+  datefiltered_data <- reactive({
+    out <-  data.frame(Country =unique(sort(ebola_df1$Country)),
+Lat = c(9.50913, 41.871941, 6.428055, 17.570692, 9.081999, 15.221447, 8.560284, 41.294856, 54.237933, 39.381266),
+Long = c(-13.71255  ,12.56738  ,-9.429499  ,-3.996166  ,8.675277  ,-14.82088  ,-11.791922  ,-4.055685  ,-2.36967  ,-97.922211),
+Totalcases=ebola_df1 %>%  filter(Date >= input$daterange[1] & Date <= input$daterange[2]) %>% group_by(Country)  %>% arrange(desc(Country)) %>%
+summarize(Totalcases = max(Totalcases,na.rm=FALSE)) %>% select(Totalcases),
+Totaldeaths =ebola_df1 %>%  filter(Date >= input$daterange[1] & Date <= input$daterange[2]) %>% group_by(Country)  %>% arrange(desc(Country)) %>%
+summarize(Totaldeaths = max(Totaldeaths,na.rm=TRUE)) %>% select(Totaldeaths)) 
+     })
+
+     # Create scatterplot object the plotOutput function is expecting
+   
+   output$scatterplot1 <- renderPlotly({
+   
+   plot_ly(subset(df_ebola,Country==input$selected_Country1), x = ~Date, y = ~Total_Cases, type = 'scatter', mode = 'lines+markers',line = list(color = 'rgb(205, 12, 24)')) %>%
+   
+   layout(title = "Ebola Confirmed Cases over Time",
+         xaxis = list(title = "Date"),
+         yaxis = list (title = "Confirmed Cases"))
+   })
+   
+    output$scatterplot2 <- renderPlotly({
+   
+   plot_ly(subset(df_ebola,Country==input$selected_Country1), x = ~Date, y = ~Total_Deaths, type = 'scatter', mode = 'lines+markers',line = list(color = 'rgb(22, 96, 167)')) %>%
+   
+   layout(title = "Ebola Confirmed Deaths over Time",
+         xaxis = list(title = "Date"),
+         yaxis = list (title = "Confirmed Deaths"))
+   })
+   
+   output$bar1 <- renderPlotly({
+          plot_ly(df, x = ~Totalcases, y = ~Country, type = 'bar', width =0.3, name = 'Total Cases',
+                     marker = list(color = 'rgb(205, 12, 24)',
+                                   line = list(color = 'transparent')),orientation='h') %>%
+       
+       add_trace(x = ~Totaldeaths, y = ~Country, type = 'bar', width =0.3, name = 'Total Deaths',
+                     marker = list(color = 'rgb(22, 96, 167)',
+                                   line = list(color = 'transparent')),orientation='h') %>% 
+       
+          layout(title = paste("Countries by Total Confirmed Cases"),
+                 xaxis = list(title = "Country"),
+                 yaxis = list(title = "No of Cases"),
+                 plot_bgcolor = "#FFFFFF",
+                 paper_bgcolor='#FFFFFF',
+                 bargap = 3)
+      })
+      
+      
+      output$bar2 <- renderPlotly({
+          plot_ly(df, x = ~FR, y = ~Country, type = 'bar', width =0.3,
+                     marker = list(color = 'rgb(31, 119, 180)',
+                                   line = list(color = 'transparent')),orientation='h') %>%
+          layout(title = paste("Countries by Fatility Rate"),
+                 xaxis = list(title = "Country"),
+                 yaxis = list(title = "No of Cases"),
+                 plot_bgcolor = "#FFFFFF",
+                 paper_bgcolor='#FFFFFF',
+                 bargap = 0.7)
+      })
+   
+    output$table1 <- renderTable({
+    subset(ebola_df,Country==input$selected_Country1) %>% summarize(Totalcases = max(Totalcases),Totaldeaths = max(Totaldeaths))
+  })
+  
+  output$table2 <- renderTable({
+    subset(df,Country==input$selected_Country2)
+  })
+  
+    output$map1 <- renderLeaflet({
+    filter_df <- datefiltered_data()
+    m <- leaflet(data = filter_df ) %>%
+      addProviderTiles(providers$Esri.WorldStreetMap) %>%
+      setView(-13.712550,9.50913,zoom=2) %>%
+      clearMarkers() %>%
+      addMarkers(lng=~Long, lat=~Lat,
+                       popup=~paste('<b><font color="Black">','Ebola Virus Cases Information','</font></b><br/>',
+                                    'Confirmed Cases:', Totalcases,'<br/>',
+                                    'Confirmed Deaths:', Totaldeaths,'<br/>',
+                                    'Country:', Country, '<br/>'))
+    m
+    
+  })
+  
+  # Create Data Table for Tab2
+  
+  output$table3 <- renderDataTable({
+      datatable(data = datefiltered_data(),
+                  rownames = FALSE,
+                  colnames = colnames(datefiltered_data),
+                  class = 'cell-border stripe',
+                  caption = paste("Table Title : Details of Ebola Virus Cases between dates ",input$daterange[1]," and ",input$daterange[2]))
+  })
+   
+}
+```
+
+```{r App, include=FALSE}
+shinyApp(ui = ui, server = server) 
+```
